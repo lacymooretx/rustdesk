@@ -46,6 +46,7 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  SM_API_KEY: "${{ secrets.SM_API_KEY }}"
 
 jobs:
   generate-bridge:
@@ -233,12 +234,39 @@ jobs:
           name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
           path: rustdesk
 
+      - name: Setup DigiCert Signing Tools
+        if: env.UPLOAD_ARTIFACT == 'true' && env.SM_API_KEY != ''
+        shell: bash
+        run: |
+          curl -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" \
+            -H "x-api-key:$SM_API_KEY" -o "$RUNNER_TEMP/smtools.msi"
+          cmd //c "msiexec /i \"$(cygpath -w "$RUNNER_TEMP/smtools.msi")\" /quiet /qn"
+          echo "C:\\Program Files\\DigiCert\\DigiCert Signing Manager Tools" >> "$GITHUB_PATH"
+          echo "$SM_CLIENT_CERT_BASE64" | base64 -d > "$RUNNER_TEMP/digicert_cert.p12"
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_BASE64: ${{ secrets.SM_CLIENT_CERT_FILE_BASE64 }}
+
       - name: Sign rustdesk files
         if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
         shell: bash
         run: |
           pip3 install requests argparse
           BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./rustdesk/
+
+      - name: Sign rustdesk files (DigiCert)
+        if: env.UPLOAD_ARTIFACT == 'true' && env.SM_API_KEY != ''
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for f in ./rustdesk/*.exe ./rustdesk/*.dll; do
+            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+          done
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}/digicert_cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: https://clientauth.one.digicert.com
 
       - name: Build self-extracted executable
         shell: bash
@@ -270,6 +298,20 @@ jobs:
         shell: bash
         run: |
           BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./SignOutput
+
+      - name: Sign release files (DigiCert)
+        if: env.UPLOAD_ARTIFACT == 'true' && env.SM_API_KEY != ''
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for f in ./SignOutput/*.exe ./SignOutput/*.msi; do
+            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+          done
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}/digicert_cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: https://clientauth.one.digicert.com
 
       - name: Publish Release
         uses: softprops/action-gh-release@v1
