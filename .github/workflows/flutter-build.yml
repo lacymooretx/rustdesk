@@ -246,7 +246,7 @@ jobs:
           Start-Process msiexec -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/qn" -Wait -NoNewWindow
           if ($LASTEXITCODE -ne 0) { Write-Error "msiexec failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
           echo "C:\Program Files\DigiCert\DigiCert Signing Manager Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          [System.Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64) | Set-Content -Path "$env:RUNNER_TEMP\digicert_cert.p12" -AsByteStream
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\digicert_cert.p12", [Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64))
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
           SM_CLIENT_CERT_BASE64: ${{ secrets.SM_CLIENT_CERT_FILE_BASE64 }}
