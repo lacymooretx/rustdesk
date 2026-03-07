@@ -243,9 +243,22 @@ jobs:
           $msiPath = "$env:RUNNER_TEMP\smtools.msi"
           Write-Host "File size: $((Get-Item $msiPath).Length)"
           Write-Host "Installing DigiCert SMCTL from $msiPath"
-          Start-Process msiexec -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/qn" -Wait -NoNewWindow
-          if ($LASTEXITCODE -ne 0) { Write-Error "msiexec failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
-          [IO.File]::AppendAllText($env:GITHUB_PATH, "C:\Program Files\DigiCert\DigiCert Signing Manager Tools`n")
+          $proc = Start-Process msiexec -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/qn", "/l*v", "$env:RUNNER_TEMP\msi_install.log" -Wait -PassThru
+          Write-Host "msiexec exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "$env:RUNNER_TEMP\msi_install.log" -Tail 50
+            throw "msiexec failed with exit code $($proc.ExitCode)"
+          }
+          $smctlDir = "C:\Program Files\DigiCert\DigiCert Signing Manager Tools"
+          if (-not (Test-Path "$smctlDir\smctl.exe")) {
+            Write-Host "Expected install path not found. Searching for smctl.exe..."
+            Get-ChildItem "C:\Program Files" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            Get-ChildItem "C:\Program Files (x86)" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            Get-Content "$env:RUNNER_TEMP\msi_install.log" -Tail 100
+            throw "smctl.exe not found after install"
+          }
+          Write-Host "smctl.exe found at $smctlDir"
+          [IO.File]::AppendAllText($env:GITHUB_PATH, "$smctlDir`n")
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\digicert_cert.p12", [Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64))
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
