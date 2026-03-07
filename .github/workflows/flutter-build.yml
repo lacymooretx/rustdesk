@@ -648,10 +648,9 @@ jobs:
         if: env.MACOS_P12_BASE64 != null
         uses: timheuer/base64-to-file@v1.2
         with:
-          # https://gregoryszorc.com/docs/apple-codesign/stable/apple_codesign_rcodesign.html#notarizing-and-stapling
-          fileName: rustdesk.json
+          fileName: notarize-key.p8
           fileDir: ${{ github.workspace }}
-          encodedString: ${{ secrets.MACOS_NOTARIZE_JSON }}
+          encodedString: ${{ secrets.MACOS_NOTARIZE_KEY_BASE64 }}
 
       - name: Install build runtime
         run: |
@@ -784,18 +783,10 @@ jobs:
           create-dmg --icon "Aspendora Remote.app" 200 190 --hide-extension "Aspendora Remote.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}.dmg "./flutter/build/macos/Build/Products/Release/Aspendora Remote.app"
           codesign --force --options runtime -s "${{ secrets.MACOS_CODESIGN_IDENTITY }}" --deep --strict rustdesk-${{ env.VERSION }}.dmg -vvv
           # notarize the rustdesk-${{ env.VERSION }}.dmg
-          python3 -c "
-          import json, base64, textwrap
-          d = json.load(open('${{ github.workspace }}/rustdesk.json'))
-          pem = '-----BEGIN PRIVATE KEY-----\n' + '\n'.join(textwrap.wrap(d['private_key'], 64)) + '\n-----END PRIVATE KEY-----\n'
-          with open('${{ github.workspace }}/notarize-key.p8', 'w') as f: f.write(pem)
-          "
-          NOTARIZE_KEY_ID=$(python3 -c "import json; print(json.load(open('${{ github.workspace }}/rustdesk.json'))['key_id'])")
-          NOTARIZE_ISSUER=$(python3 -c "import json; print(json.load(open('${{ github.workspace }}/rustdesk.json'))['issuer_id'])")
           xcrun notarytool submit rustdesk-${{ env.VERSION }}.dmg \
             --key "${{ github.workspace }}/notarize-key.p8" \
-            --key-id "$NOTARIZE_KEY_ID" \
-            --issuer "$NOTARIZE_ISSUER" \
+            --key-id "${{ secrets.MACOS_NOTARIZE_KEY_ID }}" \
+            --issuer "${{ secrets.MACOS_NOTARIZE_ISSUER_ID }}" \
             --wait
           xcrun stapler staple rustdesk-${{ env.VERSION }}.dmg
 
