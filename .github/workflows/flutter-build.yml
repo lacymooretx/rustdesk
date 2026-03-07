@@ -238,8 +238,16 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
         run: |
-          curl -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" \
-            -H "x-api-key:$SM_API_KEY" -o "$RUNNER_TEMP/smtools.msi"
+          HTTP_CODE=$(curl -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" \
+            -H "x-api-key:$SM_API_KEY" -o "$RUNNER_TEMP/smtools.msi" -w "%{http_code}" -s)
+          echo "HTTP status: $HTTP_CODE"
+          echo "File size: $(stat -c%s "$RUNNER_TEMP/smtools.msi" 2>/dev/null || wc -c < "$RUNNER_TEMP/smtools.msi")"
+          file "$RUNNER_TEMP/smtools.msi" || true
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::DigiCert download failed with HTTP $HTTP_CODE"
+            head -c 500 "$RUNNER_TEMP/smtools.msi"
+            exit 1
+          fi
           cmd //c "msiexec /i \"$(cygpath -w "$RUNNER_TEMP/smtools.msi")\" /quiet /qn"
           echo "C:\\Program Files\\DigiCert\\DigiCert Signing Manager Tools" >> "$GITHUB_PATH"
           echo "$SM_CLIENT_CERT_BASE64" | base64 -d > "$RUNNER_TEMP/digicert_cert.p12"
