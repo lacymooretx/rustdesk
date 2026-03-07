@@ -262,9 +262,13 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
         run: |
+          SMCTL="/c/Program Files/DigiCert/DigiCert Signing Manager Tools/smctl.exe"
+          echo "PATH entries:" && echo "$PATH" | tr ':' '\n' | grep -i digi || true
+          ls -la "/c/Program Files/DigiCert/DigiCert Signing Manager Tools/" 2>/dev/null || echo "DigiCert dir not found at expected path"
+          ls -la "/c/Program Files/DigiCert/" 2>/dev/null || echo "No /c/Program Files/DigiCert/"
           shopt -s nullglob
           for f in ./rustdesk/*.exe ./rustdesk/*.dll; do
-            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            "$SMCTL" sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
@@ -307,9 +311,10 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
         run: |
+          SMCTL="/c/Program Files/DigiCert/DigiCert Signing Manager Tools/smctl.exe"
           shopt -s nullglob
           for f in ./SignOutput/*.exe ./SignOutput/*.msi; do
-            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            "$SMCTL" sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
