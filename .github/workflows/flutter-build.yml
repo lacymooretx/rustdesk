@@ -236,21 +236,17 @@ jobs:
 
       - name: Setup DigiCert Signing Tools
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
-        shell: bash
+        shell: powershell
         run: |
-          HTTP_CODE=$(curl -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" \
-            -H "x-api-key:$SM_API_KEY" -o "$RUNNER_TEMP/smtools.msi" -w "%{http_code}" -s)
-          echo "HTTP status: $HTTP_CODE"
-          echo "File size: $(stat -c%s "$RUNNER_TEMP/smtools.msi" 2>/dev/null || wc -c < "$RUNNER_TEMP/smtools.msi")"
-          file "$RUNNER_TEMP/smtools.msi" || true
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::DigiCert download failed with HTTP $HTTP_CODE"
-            head -c 500 "$RUNNER_TEMP/smtools.msi"
-            exit 1
-          fi
-          cmd //c "msiexec /i \"$(cygpath -w "$RUNNER_TEMP/smtools.msi")\" /quiet /qn"
-          echo "C:\\Program Files\\DigiCert\\DigiCert Signing Manager Tools" >> "$GITHUB_PATH"
-          echo "$SM_CLIENT_CERT_BASE64" | base64 -d > "$RUNNER_TEMP/digicert_cert.p12"
+          curl.exe -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" `
+            -H "x-api-key:$env:SM_API_KEY" -o "$env:RUNNER_TEMP\smtools.msi" -s -w "%{http_code}" | Write-Host
+          $msiPath = "$env:RUNNER_TEMP\smtools.msi"
+          Write-Host "File size: $((Get-Item $msiPath).Length)"
+          Write-Host "Installing DigiCert SMCTL from $msiPath"
+          Start-Process msiexec -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/qn" -Wait -NoNewWindow
+          if ($LASTEXITCODE -ne 0) { Write-Error "msiexec failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+          echo "C:\Program Files\DigiCert\DigiCert Signing Manager Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          [System.Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64) | Set-Content -Path "$env:RUNNER_TEMP\digicert_cert.p12" -AsByteStream
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
           SM_CLIENT_CERT_BASE64: ${{ secrets.SM_CLIENT_CERT_FILE_BASE64 }}
