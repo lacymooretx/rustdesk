@@ -1,6 +1,104 @@
 # RustDesk Server Deployment Runlog
 
-## 2026-03-07 — Port 21114 Nginx Proxy for Console API
+## 2026-03-08 — Auto-Update Implementation
+
+### Step 1: Backend — Version check + download redirect endpoints
+- **Goal**: Provide version check and download redirect endpoints for the RustDesk client auto-update system
+- **What**:
+  - `POST /api/version/latest` — Extracts actual version from asset filenames (e.g., `rustdesk-1.3.8-x86_64.exe` → `1.3.8`), returns URL pointing to our own `/api/update/release/{version}` endpoint
+  - `GET /api/update/release/{version}/{filename}` — Redirects (302) to the actual GitHub asset download URL
+  - `GET /api/update/release/{version}` — Redirects to the GitHub release page
+  - `GET /api/update/check` — Console UI endpoint with platform/arch filtering
+- **Why redirect**: The nightly release tag is "nightly" but asset filenames contain the real version. The client extracts version from URL path and constructs download URLs. By using our own `/api/update/release/{version}` URL format, the version extraction works correctly AND download URLs resolve via our redirect endpoint.
+- **Files changed**:
+  - `console/backend/app/routes/update.py` — Complete rewrite with redirect logic
+  - `console/backend/app/main.py` — Registered update router
+
+### Step 2: Client — Enable update checks for custom clients
+- **Goal**: Remove the `is_custom_client()` bypass that prevents update checks
+- **What**:
+  - Removed `if is_custom_client() { return; }` in `check_software_update()`
+  - Added API server URL override in `do_check_software_update()` for custom clients (uses configured API server instead of hardcoded `api.rustdesk.com`)
+- **File changed**: `src/common.rs`
+
+### Step 3: Flutter UI — Enable update UI for custom clients
+- **What**:
+  - `desktop_home_page.dart` — Removed `!bind.isCustomClient()` check in `buildHelpCards()`, updated download/changelog URLs to point to our GitHub repo
+  - `desktop_setting_page.dart` — Removed `!bind.isCustomClient()` check for "Check for software update on startup" checkbox
+  - `connection_page.dart` (mobile) — Removed `!bind.isCustomClient()` check for update UI, updated download URL
+- **Files changed**: 3 Flutter files
+
+### Step 4: Fix nginx X-Forwarded-Proto passthrough
+- **What**: Frontend nginx was overwriting `X-Forwarded-Proto` with `$scheme` (always `http` since internal traffic is HTTP). Changed to pass through original `$http_x_forwarded_proto` with `$scheme` fallback.
+- **File changed**: `console/frontend/nginx.conf`
+
+### Step 5: Deploy backend + frontend
+- **Backend**: Rebuilt and restarted on docker.aspendora.com
+- **Frontend**: Rebuilt and restarted (nginx config change)
+- **Verified**:
+  - `POST /api/version/latest` → `{"url":"https://rd.aspendora.com/api/update/release/1.4.6"}` ✓
+  - `GET /api/update/release/1.4.6/rustdesk-1.4.6-aarch64.dmg` → 302 redirect to GitHub ✓
+  - `GET /api/update/release/1.4.6` → 302 redirect to GitHub release page ✓
+  - Port 21114 path also works: `http://rd.aspendora.com:21114/api/version/latest` ✓
+
+### Step 6: Trigger nightly client build
+- **Status**: PENDING — need to commit Rust/Flutter changes and trigger build
+
+---
+
+## 2026-03-08 — Add "Connect" Button to Console Frontend
+
+### Step 1: Add Connect button to Devices list page
+- **Goal**: Allow admins to initiate a remote desktop connection from the device list
+- **What**: Added a Monitor icon button before the Eye/view button in the actions column, visible only for online devices. Clicking opens `rustdesk://connection/new/{device_id}` URI.
+- **File changed**: `console/frontend/src/pages/Devices.jsx`
+- **Result**: Connect button appears for online devices with indigo hover color and "Remote connect" tooltip
+
+### Step 2: Add Connect button to DeviceDetail page
+- **Goal**: Provide a prominent Connect button on the device detail page
+- **What**: Added an indigo "Connect" button with Monitor icon in the header area, next to the enable/disable toggle. Only visible when device is online.
+- **File changed**: `console/frontend/src/pages/DeviceDetail.jsx`
+- **Result**: Prominent Connect button shows in the page header for online devices
+
+## 2026-03-08 — Phase 2: Aspendora Branding
+
+### Step 1: Generate icons from logo
+- **Goal**: Replace all RustDesk icons with Aspendora branding
+- **Source**: `/Users/lacy/code/rustdesk/letterhead logo reverse source.fw.png` — extracted red roofline mark
+- **Design**: Red roofline on dark navy (#1a1a2e) background
+- **Generated**: 53 files across all platforms
+  - `res/`: icon.png, mac-icon.png, 128x128.png, 64x64.png, 32x32.png, icon.ico, tray-icon.ico, tray PNGs, logo.svg, logo-header.svg
+  - `flutter/windows/runner/resources/app_icon.ico`
+  - `flutter/macos/Runner/AppIcon.icns` (via iconutil)
+  - `flutter/ios/Runner/Assets.xcassets/AppIcon.appiconset/` — 15 size variants
+  - `flutter/android/app/src/main/res/mipmap-*/` — 5 densities x 4 variants
+  - `flutter/assets/icon.svg`
+  - `fastlane/metadata/android/en-US/images/icon.png`
+
+### Step 2: Fix hardcoded "RustDesk" in Flutter UI
+- **File**: `flutter/lib/desktop/widgets/tabbar_widget.dart:643`
+- **Fix**: Replaced `"RustDesk"` literal with `bind.mainGetAppNameSync()` (returns "Aspendora Remote")
+- **Other references**: Translation keys like `translate('About RustDesk')` are lookup keys handled by the i18n system; internal identifiers like `RustDeskMultiWindowManager` left unchanged
+
+### Step 3: Commit and build
+- **Commit**: `b486fab2c` — "Replace all app icons with Aspendora branding"
+- **Build**: Triggered `Flutter Nightly Build` workflow
+
+---
+
+## 2026-03-08 — Phase 1: Heartbeat + Sysinfo Endpoint Alignment
+
+### Step 1: Add /api/sysinfo endpoint
+- **Goal**: Accept the native RustDesk client sysinfo upload
+- **What**: Added `POST /api/sysinfo` endpoint that accepts `{cpu, memory, os, hostname, username, version, id, uuid}` and returns `"SYSINFO_UPDATED"` plain text
+- **Also**: Updated `HeartbeatPayload` schema to accept native client fields (`uuid`, `ver`, `conns`, `modified_at`)
+- **Files**: `console/backend/app/routes/heartbeat.py`, `console/backend/app/schemas/heartbeat.py`
+- **Deployed**: Backend rebuilt and restarted on docker.aspendora.com
+- **Verified**: Both endpoints return expected responses via port 21114
+
+---
+
+## 2026-03-08 — Port 21114 Nginx Proxy for Console API
 
 ### Setup: Proxy port 21114 to aspendora-console-backend
 - **Goal**: Expose the console backend API on port 21114 via nginx reverse proxy so RustDesk clients can reach it
