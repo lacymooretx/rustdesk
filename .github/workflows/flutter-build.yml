@@ -276,7 +276,14 @@ jobs:
         run: |
           shopt -s nullglob
           for f in ./rustdesk/*.exe ./rustdesk/*.dll; do
-            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            echo "Signing: $f"
+            output=$(smctl sign --keypair-alias key_1474429650 --input "$f" 2>&1) || true
+            echo "$output"
+            if echo "$output" | grep -qi "FAILED"; then
+              echo "::error::DigiCert signing FAILED for $f"
+              exit 1
+            fi
+            echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
@@ -321,7 +328,14 @@ jobs:
         run: |
           shopt -s nullglob
           for f in ./SignOutput/*.exe ./SignOutput/*.msi; do
-            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            echo "Signing: $f"
+            output=$(smctl sign --keypair-alias key_1474429650 --input "$f" 2>&1) || true
+            echo "$output"
+            if echo "$output" | grep -qi "FAILED"; then
+              echo "::error::DigiCert signing FAILED for $f"
+              exit 1
+            fi
+            echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
