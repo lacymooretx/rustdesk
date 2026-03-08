@@ -249,15 +249,14 @@ jobs:
             Get-Content "$env:RUNNER_TEMP\msi_install.log" -Tail 50
             throw "msiexec failed with exit code $($proc.ExitCode)"
           }
-          $smctlDir = "C:\Program Files\DigiCert\DigiCert Signing Manager Tools"
-          if (-not (Test-Path "$smctlDir\smctl.exe")) {
-            Write-Host "Expected install path not found. Searching for smctl.exe..."
-            Get-ChildItem "C:\Program Files" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
-            Get-ChildItem "C:\Program Files (x86)" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
-            Get-Content "$env:RUNNER_TEMP\msi_install.log" -Tail 100
-            throw "smctl.exe not found after install"
+          $smctl = Get-ChildItem "C:\Program Files\DigiCert" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $smctl) {
+            Write-Host "smctl.exe not found under C:\Program Files\DigiCert. Full search..."
+            $smctl = Get-ChildItem "C:\Program Files" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           }
-          Write-Host "smctl.exe found at $smctlDir"
+          if (-not $smctl) { throw "smctl.exe not found after install" }
+          $smctlDir = $smctl.DirectoryName
+          Write-Host "smctl.exe found at $($smctl.FullName)"
           [IO.File]::AppendAllText($env:GITHUB_PATH, "$smctlDir`n")
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\digicert_cert.p12", [Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64))
         env:
@@ -275,13 +274,9 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
         run: |
-          SMCTL="/c/Program Files/DigiCert/DigiCert Signing Manager Tools/smctl.exe"
-          echo "PATH entries:" && echo "$PATH" | tr ':' '\n' | grep -i digi || true
-          ls -la "/c/Program Files/DigiCert/DigiCert Signing Manager Tools/" 2>/dev/null || echo "DigiCert dir not found at expected path"
-          ls -la "/c/Program Files/DigiCert/" 2>/dev/null || echo "No /c/Program Files/DigiCert/"
           shopt -s nullglob
           for f in ./rustdesk/*.exe ./rustdesk/*.dll; do
-            "$SMCTL" sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
@@ -324,10 +319,9 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
         run: |
-          SMCTL="/c/Program Files/DigiCert/DigiCert Signing Manager Tools/smctl.exe"
           shopt -s nullglob
           for f in ./SignOutput/*.exe ./SignOutput/*.msi; do
-            "$SMCTL" sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
+            smctl sign --keypair-alias key_1474429650 --input "$f" && echo "Signed: $f"
           done
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
