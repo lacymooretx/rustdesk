@@ -270,6 +270,24 @@ jobs:
           pip3 install requests argparse
           BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./rustdesk/
 
+      - name: DigiCert healthcheck
+        if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
+        shell: bash
+        run: |
+          echo "=== smctl version ==="
+          smctl --version || true
+          echo "=== smctl healthcheck ==="
+          smctl healthcheck || true
+          echo "=== smctl keypair list ==="
+          smctl keypair ls 2>&1 | head -20 || true
+          echo "=== cert file check ==="
+          ls -la "$SM_CLIENT_CERT_FILE" || echo "CERT FILE NOT FOUND"
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}/digicert_cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: https://clientauth.one.digicert.com
+
       - name: Sign rustdesk files (DigiCert)
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: bash
@@ -277,7 +295,7 @@ jobs:
           shopt -s nullglob
           for f in ./rustdesk/*.exe ./rustdesk/*.dll; do
             echo "Signing: $f"
-            output=$(smctl sign --keypair-alias key_1474429650 --input "$f" 2>&1) || true
+            output=$(smctl sign --keypair-alias key_1474429650 --verbose --input "$f" 2>&1) || true
             echo "$output"
             if echo "$output" | grep -qi "FAILED"; then
               echo "::error::DigiCert signing FAILED for $f"
@@ -329,7 +347,7 @@ jobs:
           shopt -s nullglob
           for f in ./SignOutput/*.exe ./SignOutput/*.msi; do
             echo "Signing: $f"
-            output=$(smctl sign --keypair-alias key_1474429650 --input "$f" 2>&1) || true
+            output=$(smctl sign --keypair-alias key_1474429650 --verbose --input "$f" 2>&1) || true
             echo "$output"
             if echo "$output" | grep -qi "FAILED"; then
               echo "::error::DigiCert signing FAILED for $f"
