@@ -238,6 +238,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.DIGICERT_SIGN != '-2'
         shell: powershell
         run: |
+          # Download and install smtools
           curl.exe -X GET "https://one.digicert.com/signingmanager/api-ui/v1/releases/smtools-windows-x64.msi/download" `
             -H "x-api-key:$env:SM_API_KEY" -o "$env:RUNNER_TEMP\smtools.msi" -s -w "%{http_code}" | Write-Host
           $msiPath = "$env:RUNNER_TEMP\smtools.msi"
@@ -249,6 +250,7 @@ jobs:
             Get-Content "$env:RUNNER_TEMP\msi_install.log" -Tail 50
             throw "msiexec failed with exit code $($proc.ExitCode)"
           }
+          # Find smctl.exe and add to PATH
           $smctl = Get-ChildItem "C:\Program Files\DigiCert" -Recurse -Filter "smctl.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $smctl) {
             Write-Host "smctl.exe not found under C:\Program Files\DigiCert. Full search..."
@@ -258,10 +260,24 @@ jobs:
           $smctlDir = $smctl.DirectoryName
           Write-Host "smctl.exe found at $($smctl.FullName)"
           [IO.File]::AppendAllText($env:GITHUB_PATH, "$smctlDir`n")
+          # Decode client certificate
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\digicert_cert.p12", [Convert]::FromBase64String($env:SM_CLIENT_CERT_BASE64))
+          # Find signtool.exe from Windows SDK and add to PATH
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
+          if ($signtool) {
+            Write-Host "signtool.exe found at $($signtool.FullName)"
+            [IO.File]::AppendAllText($env:GITHUB_PATH, "$($signtool.DirectoryName)`n")
+          } else {
+            Write-Host "WARNING: signtool.exe not found in Windows SDK"
+          }
+          # Sync DigiCert certificate to Windows certificate store
+          & "$($smctl.FullName)" windows certsync 2>&1 | Write-Host
         env:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
           SM_CLIENT_CERT_BASE64: ${{ secrets.SM_CLIENT_CERT_FILE_BASE64 }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}/digicert_cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: https://clientauth.one.digicert.com
 
       - name: Sign rustdesk files
         if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
