@@ -106,14 +106,18 @@ Replaces RustDesk Server Pro's paid console with our own implementation.
 - [x] Hardcoded "RustDesk" string fixed in tabbar widget (uses dynamic app name)
 - [x] Web remote access — Connect button on device list + detail pages (rustdesk:// URI scheme)
 - [x] Auto-update — backend version check + download redirect endpoints, client update checks enabled for custom clients
+- [x] DigiCert code signing — Windows exe/dll/msi signed (certsync + signtool PATH fix)
+- [x] First client deployment — 3E-ADMINPC installed, service running, connected to server
+- [x] Vultr firewall fix — port 21114 opened, heartbeats flowing, device online in console
+- [ ] Fix service name space bug — `sc create` fails with spaces in app name, workaround: use `New-Service` in installer
 - [ ] Control roles (session-level permissions)
 - [ ] LDAP integration
 
 ---
 
 ## Current Status
-**Phase**: Phase 7 — IN PROGRESS (branding, heartbeat, web access, auto-update done; pending client build)
-**Last Updated**: 2026-03-08
+**Phase**: Phase 7 — IN PROGRESS (branding, heartbeat, web access, auto-update, code signing, Vultr firewall done; service name space bug found)
+**Last Updated**: 2026-03-09
 
 ### Phase 6 Deliverables
 

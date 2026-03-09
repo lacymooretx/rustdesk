@@ -1,5 +1,21 @@
 # RustDesk Server Deployment Runlog
 
+## 2026-03-09 — Vultr Firewall Fix for Port 21114
+
+### Step 12: Open port 21114 on Vultr network firewall
+- **Goal**: Allow heartbeat/sysinfo traffic from RustDesk clients to reach the console backend on port 21114
+- **What**: Added TCP port 21114 rule (source `0.0.0.0/0`) to Vultr "Local" firewall group `7a4f8242-2c9b-49f6-8c75-f8ecb3f1d661` via Vultr API
+- **Why**: Port was open at the OS/Docker level but blocked by Vultr's network firewall. The firewall had TCP 21115:21119 but NOT 21114.
+- **Result**: Rule ID 39 created. Port 21114 immediately reachable.
+- **Verification**:
+  - `nc -z rd.aspendora.com 21114` → succeeded
+  - `curl http://rd.aspendora.com:21114/api/health` → HTTP 200
+  - Backend logs show heartbeat + sysinfo POSTs arriving from 3E-ADMINPC
+  - Device 382591997 now shows **online=true**, hostname=3e-adminpc, OS=Windows 11 Enterprise
+  - Dashboard stats: 1 online device out of 2 total
+
+---
+
 ## 2026-03-08 — Auto-Update Implementation
 
 ### Step 1: Backend — Version check + download redirect endpoints
@@ -41,8 +57,10 @@
   - `GET /api/update/release/1.4.6` → 302 redirect to GitHub release page ✓
   - Port 21114 path also works: `http://rd.aspendora.com:21114/api/version/latest` ✓
 
-### Step 6: Trigger nightly client build
-- **Status**: PENDING — need to commit Rust/Flutter changes and trigger build
+### Step 6: Commit, push, and trigger nightly build
+- **Commit**: `4216320d1` — "Enable auto-update for custom clients (Aspendora Remote)"
+- **Build**: Run 22821760079 triggered via `gh workflow run`
+- **Status**: Build queued, waiting for completion
 
 ---
 
@@ -765,8 +783,60 @@ Sign the Windows nightly .exe and .msi with DigiCert KeyLocker so SmartScreen/De
 ### Step 7: Auto-discover smctl.exe location
 - **What**: Replaced hardcoded path with recursive search under `C:\Program Files\DigiCert`. Also added `-PassThru` to Start-Process for proper exit code capture and `/l*v` verbose MSI logging.
 - **Commits**: `9ee7d9832`, `8932ef003`
-- **Result**: BUILD PASSED — Windows x86_64 fully signed and published. 21/22 jobs passed (only armv7 Android failed due to Gradle network timeout — flaky, not our code)
+- **Result**: BUILD PASSED — but signing was actually FAILING silently (smctl returns exit code 0 on failure). All files showed "signCommand FAILED" in logs.
 - **Build run**: https://github.com/lacymooretx/rustdesk/actions/runs/22810668362
+
+### Step 8: Fix DigiCert signing — password secret was empty
+- **Timestamp**: 2026-03-08 ~20:16 UTC
+- **Goal**: Fix Windows code signing so the exe can be installed on WDAC-protected machines
+- **Root cause**: `SM_CLIENT_CERT_PASSWORD` GitHub secret was empty. `smctl sign` returns exit code 0 even when signing fails, so CI step appeared to pass. Every build since DigiCert was added had unsigned binaries.
+- **What**:
+  1. Set `SM_CLIENT_CERT_PASSWORD` GitHub secret to correct value from `~/.secrets/.env`
+  2. Changed CI signing steps to capture smctl output and grep for "FAILED" — exits 1 if detected
+- **Files changed**: `.github/workflows/flutter-build.yml` (both DigiCert signing steps)
+- **Commit**: `3d0ef0faf`
+- **Build run**: https://github.com/lacymooretx/rustdesk/actions/runs/22829015003
+- **Result**: Signing still failed — smctl output said "FAILED" but gave no detail.
+
+### Step 9: Diagnose smctl signing failure with healthcheck
+- **Timestamp**: 2026-03-08 ~21:37 UTC
+- **Goal**: Get verbose smctl output to understand why signing fails despite correct credentials
+- **What**:
+  1. Added `DigiCert healthcheck` step: smctl --version, healthcheck, keypair ls, cert file check
+  2. Added `--verbose` flag to smctl sign commands
+- **Build run**: https://github.com/lacymooretx/rustdesk/actions/runs/22830425070
+- **Findings from healthcheck**:
+  - smctl version 1.63.0, connected to DigiCert, user: lacy@aspendora.com
+  - Can sign: Yes, keypair `key_1474429650` found (RSA 3072, ONLINE, HSM)
+  - **Signtool: Mapped: No** ← ROOT CAUSE
+  - smctl sign wraps Windows signtool.exe but signtool wasn't in PATH
+  - Client cert synced to Windows cert store was also missing
+
+### Step 10: Fix signtool PATH + certsync — SIGNING WORKS
+- **Timestamp**: 2026-03-08 ~22:53 UTC
+- **Goal**: Make signtool discoverable by smctl and sync DigiCert cert to Windows cert store
+- **What**:
+  1. Find `signtool.exe` from Windows SDK (`C:\Program Files (x86)\Windows Kits`) and add to GITHUB_PATH
+  2. Run `smctl windows certsync` in setup step (requires SM_CLIENT_CERT_PASSWORD + SM_HOST env vars)
+  3. Pass SM_CLIENT_CERT_PASSWORD and SM_HOST to the setup step
+- **Commit**: `7392b7315`
+- **Build run**: https://github.com/lacymooretx/rustdesk/actions/runs/22831758162
+- **Result**: ALL SIGNING STEPS PASSED. Windows exe, dlls, msi all signed and published.
+- **Next**: Install signed exe on 3E-ADMINPC
+
+### Step 11: Install Aspendora Remote on 3E-ADMINPC via CWA
+- **Timestamp**: 2026-03-09 ~00:00 UTC
+- **Note**: CWA API requires `clientid` header AND Python for proper password handling (bash mangles special chars)
+- **What**:
+  1. Downloaded signed `rustdesk-1.4.6-x86_64.exe` from GitHub nightly release (24MB)
+  2. Ran `--silent-install` — extracted files to `C:\Program Files\Aspendora Remote\`, exit code 0
+  3. Service NOT created by silent install — `sc create` fails because service name "Aspendora Remote" has a space (bug in RustDesk `get_create_service()`)
+  4. Manually created service via PowerShell `New-Service` — service started successfully
+  5. Config populated at `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Aspendora Remote\config\`
+  6. `key_confirmed = true` — device registered with rendezvous server
+  7. Rendezvous: `rd.aspendora.com:21116`, local IP: `10.2.1.62`
+- **Known bug**: `get_create_service()` in `src/platform/windows.rs:3472` generates `sc create Aspendora Remote binpath=...` — space in name breaks `sc.exe` argument parsing. Should use quoted service name.
+- **Result**: Aspendora Remote installed and running on 3E-ADMINPC
 - [ ] If notarization fails: check the .p8 key decoded correctly from base64
 - [ ] Test ImmyBot deployment with signed Windows EXE
 - [ ] Clean up `MACOS_NOTARIZE_JSON` secret (no longer used)
