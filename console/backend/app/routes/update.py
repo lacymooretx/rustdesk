@@ -3,7 +3,7 @@ import re
 
 import httpx
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,16 @@ def _find_asset_by_filename(assets: list, filename: str) -> str | None:
     return None
 
 
+def _branded_name(filename: str) -> str:
+    """Map the internal 'rustdesk-*' asset name to the Aspendora brand name
+    shown to users in their browser's download (Content-Disposition only —
+    the GitHub asset itself is unchanged so client auto-update still works).
+    """
+    if filename.startswith("rustdesk-"):
+        return "Aspendora-Remote-" + filename[len("rustdesk-"):]
+    return filename
+
+
 # User-facing installers to surface on the console Downloads page.
 # Each entry: (platform label, arch label, filename suffix, kind label).
 # Order here controls display order within a platform group.
@@ -157,11 +167,11 @@ def _list_downloads(assets: list, version: str, base_url: str) -> list:
                 if any(d["filename"] == name for d in groups[platform]):
                     continue
                 groups[platform].append({
-                    "filename": name,
+                    "filename": _branded_name(name),
                     "arch": arch,
                     "kind": kind,
                     "size": asset.get("size", 0),
-                    "url": f"{base_url}/api/update/release/{version}/{name}",
+                    "url": f"{base_url}/api/update/download/{name}",
                 })
                 break
     return [{"platform": p, "files": f} for p, f in groups.items() if f]
@@ -242,6 +252,56 @@ async def download_redirect(version: str, filename: str):
         )
 
     return RedirectResponse(url=download_url, status_code=302)
+
+
+@router.get("/update/download/{filename}")
+async def branded_download(filename: str):
+    """Stream a release asset to the browser with the Aspendora brand name.
+
+    Used by the console Downloads page so users save e.g.
+    'Aspendora-Remote-1.4.7-x86_64.msi' instead of 'rustdesk-...'. The
+    underlying GitHub asset name is unchanged (client auto-update uses the
+    separate /update/release redirect, which still serves rustdesk-* names).
+    """
+    release = await _fetch_latest_release()
+    if not release:
+        return JSONResponse(status_code=404, content={"detail": "No release found"})
+
+    download_url = _find_asset_by_filename(release.get("assets", []), filename)
+    if not download_url:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": f"Asset '{filename}' not found in release"},
+        )
+
+    branded = _branded_name(filename)
+    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
+    upstream = await client.send(client.build_request("GET", download_url), stream=True)
+    if upstream.status_code != 200:
+        await upstream.aclose()
+        await client.aclose()
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Upstream asset fetch failed"},
+        )
+
+    headers = {"Content-Disposition": f'attachment; filename="{branded}"'}
+    if "content-length" in upstream.headers:
+        headers["Content-Length"] = upstream.headers["content-length"]
+
+    async def _iter():
+        try:
+            async for chunk in upstream.aiter_bytes(64 * 1024):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _iter(),
+        media_type=upstream.headers.get("content-type", "application/octet-stream"),
+        headers=headers,
+    )
 
 
 @router.get("/update/release/{version}")
