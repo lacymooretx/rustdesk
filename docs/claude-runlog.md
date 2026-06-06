@@ -1,5 +1,167 @@
 # RustDesk Server Deployment Runlog
 
+## 2026-03-11 — Deploy Aspendora Remote to DESKTOP-3E2A8N6 (CWA ID 108)
+
+### Deployment via CWA API
+- **Timestamp**: 2026-03-11
+- **Goal**: Install and configure Aspendora Remote agent on DESKTOP-3E2A8N6 (Windows 11)
+- **Method**: Python scripts using CWA CommandExecute API (Command ID 2)
+- **CWA Computer ID**: 108
+
+### Results
+
+**1. Pre-flight Checks**
+- No existing Aspendora Remote installation found (NOT_INSTALLED)
+- No old RustDesk installation found (NO_OLD_RUSTDESK)
+- Computer online, Windows 11 Business x64
+
+**2. Download & Install**
+- Downloaded `rustdesk-1.4.6-x86_64.exe` (24,172,136 bytes) from GitHub nightly release
+- Silent install completed successfully
+- Binary installed as: `C:\Program Files\Aspendora Remote\Aspendora Remote.exe` (v1.4.6+64)
+- Service "Aspendora Remote" auto-started
+
+**3. Configuration**
+- `Aspendora Remote2.toml` written with full server config:
+  - rendezvous_server = rd.aspendora.com
+  - custom-rendezvous-server = rd.aspendora.com
+  - relay-server = rd.aspendora.com
+  - api-server = https://rd.aspendora.com
+  - direct-server = Y, allow-auto-disconnect = Y, enable-audio = N
+
+**4. Password**
+- Set via CLI: `"Aspendora Remote.exe" --password Aspendora2026!` -> "Done!"
+- Password stored encrypted in config: `password = '00b55VpQPQdNixzcouSQEDO8XGT6o40WQG4mp1Cm8='`
+
+**5. RustDesk ID**
+- **RustDesk ID: 144370270**
+- Retrieved via `--get-id` CLI flag
+
+**6. Service Status**
+- Service: Aspendora Remote - RUNNING (WIN32_OWN_PROCESS, STOPPABLE)
+- Multiple log directories created (server, service, tray, check-hwcodec-config, etc.)
+
+### CWA API Notes
+- Pipe `|` characters in PowerShell commands get split by CWA's `!!!` delimiter into separate Parameters array entries. Use `cmd.exe` commands with `type` instead of PowerShell pipes for reading files.
+- `powershell.exe!!!/c -Command` causes "-Command is not recognized" error but the rest of the command still executes (harmless).
+- `timeout /t N /nobreak` causes "Input redirection not supported" in CWA — use `ping -n N 127.0.0.1 > nul` instead for delays.
+
+---
+
+## 2026-03-09 — Check Aspendora Remote Agent State on 3E-ADMINPC
+
+### Agent State Check via CWA API
+- **Timestamp**: 2026-03-09
+- **Goal**: Verify Aspendora Remote agent is running correctly on 3E-ADMINPC
+- **Important**: Computer ID for 3E-ADMINPC is **197** (not 2 as previously recorded)
+- **Method**: Python script using CWA CommandExecute API (Command ID 2)
+
+#### Results
+
+**1. Running Processes**
+- `rustdesk.exe` PID 4148 (Services session 0) — 20,544 KB — this is the service
+- `rustdesk.exe` PID 4564 (Console session 1) — 35,156 KB — this is the tray/UI
+- No "aspendora*" processes found (executable is still named `rustdesk.exe`)
+
+**2. Service Configuration**
+- Service Name: `Aspendora Remote`
+- Display Name: `Aspendora Remote Service`
+- Start Type: AUTO_START
+- Binary: `"C:\Program Files\Aspendora Remote\rustdesk.exe" --service`
+- Runs as: LocalSystem
+- Status: Running correctly
+
+**3. Config File** (`Aspendora Remote.toml`)
+- Has `enc_id`, `salt`, `key_pair`, `key_confirmed = true`
+- `keys_confirmed.rd = true` — relay/rendezvous key is confirmed
+- Config is under `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Aspendora Remote\config\`
+
+**4. Server Log** (rustdesk_rCURRENT.log)
+- Started at 2026-03-09 13:40:20 as SYSTEM user
+- IPC server running at `\\.\pipe\Aspendora Remote\query`
+- NAT test: ASYMMETRIC (78ms) — tested against rd.aspendora.com:21116 and :21115
+- IPv6 STUN failed (expected — no IPv6 on this network)
+- Rendezvous mediator started: `rd.aspendora.com:21116`
+- Latency to rendezvous server: 10.5ms
+- Hardware codec detected: Intel QSV (h264_qsv, hevc_qsv encode; h264/hevc D3D11VA decode)
+- Printer service init failed (expected — service account lacks printer driver access)
+- sysinfo updated successfully
+
+**5. Firewall Rules**
+- `Aspendora Remote Service` — Inbound Allow — Enabled
+- `Aspendora Remote Service` — Outbound Allow — Enabled
+
+#### Summary
+The Aspendora Remote agent on 3E-ADMINPC is **healthy and fully operational**:
+- Service running as AUTO_START, both service and UI processes active
+- Connected to rd.aspendora.com rendezvous server with 10.5ms latency
+- NAT type: ASYMMETRIC (may need relay for some connections)
+- Firewall rules properly configured (inbound + outbound allow)
+- Key exchange confirmed with server
+
+---
+
+## 2026-03-09 — Service Name Space Bug Fix + Agent Reinstall
+
+### Step 13: Fix service name space bug in windows.rs
+- **Goal**: Fix `sc create/stop/delete` and `taskkill` commands that break when app name contains spaces
+- **What**: Quoted all `{app_name}` references in `sc` and `taskkill` commands across 5 code sections:
+  - Line 1666-1667: uninstall `sc stop/delete`
+  - Line 2931-2932: uninstall service `sc stop/delete`
+  - Line 2961: update `taskkill`
+  - Line 3132: restore service `sc start`
+  - Line 3164: update `sc stop`
+  - Line 3449-3454: import config `sc stop/delete/create/start`
+  - Line 3472-3473: create service `sc create/start`
+- **Files changed**: `src/platform/windows.rs`
+- **Commit**: `397b13951` — "Fix service name space bug: quote app name in all sc/taskkill commands"
+- **Build**: Run 22839480888 triggered, ~1h15m expected
+
+### Step 14: Uninstall old agent on 3E-ADMINPC
+- **Goal**: Remove old agent before reinstalling with fixed build
+- **What**: Via CWA Command ID 2 (computer 197): stopped service, deleted service, killed processes, removed install directory
+- **Result**: `[SC] DeleteService SUCCESS`, `Uninstall complete`
+
+### Step 15: Reinstall with new build
+- **Build**: 22839480888 completed — Windows x86_64 signed and published
+- **What**: Downloaded `rustdesk-1.4.6-x86_64.exe` from nightly release via CWA PowerShell, ran `--silent-install`
+- **Issue found**: Service created with binary path `Aspendora Remote.exe` but actual file is `rustdesk.exe` — install flow was missing the `rename_exe_cmd` step
+- **Workaround**: Manually recreated service with correct path via `sc.exe create/start`
+- **Result**: Service running (PID 960), device online in console, heartbeats flowing
+
+### Step 16: Fix install exe rename bug
+- **Goal**: Install flow should rename `rustdesk.exe` to `{app_name}.exe` so service binary path resolves
+- **What**: Added `rename_exe_cmd(&src_exe, &path)?` to install command sequence, after `copy_exe` and before registry/service commands
+- **Root cause**: Update flow had `rename_exe` but install flow didn't — missing from the format string
+- **File changed**: `src/platform/windows.rs` (line ~1597)
+- **Commit**: `85e4a0200` — "Fix install: add exe rename step so service binary path resolves"
+- **Note**: This fix will take effect in the next nightly build; current 3E-ADMINPC install was manually fixed
+
+### Step 17: Fix "Reset by the peer" — relay key mismatch
+- **Timestamp**: 2026-03-09
+- **Goal**: Fix "Reset by the peer" error when attempting remote connections
+- **Root cause**: hbbs and hbbr containers had **different keypairs** because they used separate Docker volumes (`rustdesk_hbbs_data` and `rustdesk_hbbr_data`). Each generated its own key independently on March 5. Since NAT type is ASYMMETRIC, all connections must go through hbbr relay — and relay rejected every attempt with "invalid key".
+  - hbbs key: `H81NU8YkQerS+ZYgMuCqfzwDC40EIBopeIJdBvb+NX0=`
+  - hbbr key: `q2OG33Wcvegb8TC+lvcpzx+TGLkGiaCAkOpTbTRkRf0=` (WRONG)
+  - hbbr logs: `WARN Relay authentication failed from ... - invalid key` (every attempt)
+- **Fix**:
+  1. Copied hbbs private/public keypair to shared host dir `/opt/docker/rustdesk/data/`
+  2. Updated `docker-compose.yml`: both containers now use bind mount `/opt/docker/rustdesk/data:/root` (removed separate named volumes)
+  3. Recreated both containers with `docker compose up -d`
+  4. Verified both containers report same key: `H81NU8YkQerS+ZYgMuCqfzwDC40EIBopeIJdBvb+NX0=`
+  5. Restarted Aspendora Remote service on 3E-ADMINPC
+  6. Agent re-registered with hbbs, no "invalid key" errors in hbbr
+- **Files changed**: `server-deploy/docker-compose.yml` (bind mount replaces named volumes)
+- **Also done**: Set permanent password `Aspendora2026!` on 3E-ADMINPC for unattended access, and copied `rustdesk.exe` → `Aspendora Remote.exe` so `--password` CLI flag works
+
+### Step 18: Set permanent password for unattended access
+- **Goal**: Enable unattended remote access (no manual approval needed)
+- **What**: Set password `Aspendora2026!` in config file `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Aspendora Remote\config\Aspendora Remote.toml`
+- **Method**: Edited config directly via CWA (the `--password` CLI flag failed because `is_installed()` checks for `Aspendora Remote.exe` which didn't exist yet). Also copied `rustdesk.exe` to `Aspendora Remote.exe` in the install dir.
+- **Result**: Service encrypted and stored the password on restart. Config shows: `password = '005hF/bZow24/OGvpRfZQu0NvsuTC2HGqY/S0wQdF/'`
+
+---
+
 ## 2026-03-09 — Vultr Firewall Fix for Port 21114
 
 ### Step 12: Open port 21114 on Vultr network firewall
@@ -844,3 +1006,104 @@ Sign the Windows nightly .exe and .msi with DigiCert KeyLocker so SmartScreen/De
 - [ ] Change default admin password (admin@aspendora.com still has "admin")
 - [ ] Configure Entra ID SSO
 - [ ] Configure SMTP for email notifications
+
+---
+
+## 2026-03-09 — Set Permanent Password on 3E-ADMINPC
+
+### Step 1: Initial attempt with --password CLI flag
+- **Timestamp**: 2026-03-09 ~14:30 CST
+- **Goal**: Set permanent password "Aspendora2026!" on Aspendora Remote agent (computer 197)
+- **Method**: CWA API CommandExecute (Command ID 2)
+- **Command**: `rustdesk.exe --password Aspendora2026!`
+- **Result**: **FAILED** — "Installation and administrative privileges required!"
+- **Root cause**: `is_installed()` in `src/platform/windows.rs` checks for `C:\Program Files\Aspendora Remote\Aspendora Remote.exe` but the actual file is `rustdesk.exe` (the install rename step was fixed in commit `85e4a0200` but this machine was installed before that fix)
+
+### Step 2: Set password via direct config TOML edit
+- **Goal**: Bypass the `is_installed()` check by editing the config file directly
+- **What**: Used PowerShell via CWA to:
+  1. Stop the Aspendora Remote service
+  2. Edit `Aspendora Remote.toml` to replace `password = ''` with `password = 'Aspendora2026!'`
+  3. Start the service
+- **Result**: **SUCCESS**
+  - Config after edit showed `password = 'Aspendora2026!'` (plain text before service reads it)
+  - After service start, config showed `password = '005hF/bZow24/OGvpRfZQu0NvsuTC2HGqY/S0wQdF/'` (hashed by service on startup)
+  - Service STATE: 4 RUNNING
+
+### Step 3: Fix future CLI compatibility
+- **What**: Copied `rustdesk.exe` to `Aspendora Remote.exe` in the install dir so `is_installed()` returns true
+- **Result**: 1 file(s) copied — `--password` CLI flag will work for future password changes
+
+### Step 4: Verify agent health
+- **RustDesk ID**: 382591997
+- **Service**: Running as SYSTEM
+- **NAT type**: ASYMMETRIC (58ms test time)
+- **Rendezvous server**: rd.aspendora.com:21116 (latency: 14.3ms)
+- **Hardware codecs**: Intel QSV (h264/hevc encode), D3D11VA (h264/hevc decode)
+- **Config (Aspendora Remote2.toml)**:
+  - `rendezvous_server = 'rd.aspendora.com:21116'`
+  - `nat_type = 1`
+  - `local-ip-addr = '10.2.1.62'`
+  - No `approve-mode` or `verification-method` explicitly set (using defaults)
+- **Errors (non-critical)**:
+  - IPv6 STUN resolution failed (expected — no IPv6 on LAN)
+  - Printer service init failed (expected — service context)
+- **No service process log** found at `log/rustdesk_rCURRENT.log` (only `log/server/rustdesk_rCURRENT.log` exists)
+
+### Scripts created
+- `scripts/cwa_set_password.py` — Initial attempt (correct CWA API format discovered)
+- `scripts/cwa_set_password_final.py` — Working approach (edit TOML directly)
+- `scripts/cwa_fetch_pending.py` — Fetch pending command results
+
+---
+
+## 2026-06-06 — Catch up fork to upstream 1.4.7
+
+**Goal:** Bring Aspendora fork (was 1.4.6, 146 commits behind) up to upstream RustDesk 1.4.7, preserving all customizations.
+
+**Strategy (user-approved):** Merge (not rebase) into the stable `1.4.7` tag.
+
+### Pre-state
+- Main repo: 146 behind / 27 ahead of `upstream/master`; on 1.4.6.
+- `1.4.7` tag = master − 2 commits (effectively current release).
+- hbb_common submodule (fork `aspendora-custom`): 76 behind / 1 ahead of upstream `up/main`; our 1 commit = 4 lines in `config.rs` (APP_NAME, PROD_RENDEZVOUS_SERVER, RENDEZVOUS_SERVERS, RS_PUB_KEY).
+
+### Phase 1 — hbb_common submodule
+- Rebased our single config commit onto `df6badc` (hbb_common ref of main-repo tag 1.4.7). Clean, no conflicts.
+- New commit `cb5e7bb` on branch `aspendora-custom-1.4.7`. All 4 customizations verified present.
+- Push to `lacymooretx/hbb_common` DEFERRED to final push phase.
+
+### Phase 2 — main repo merge (branch `catch-up-upstream-1.4.7` off master 85e4a0200)
+- `git merge --no-commit --no-ff 1.4.7`: auto-merge clean for ALL files; only `libs/hbb_common` submodule conflicted (expected — git never auto-merges submodules).
+- Resolved submodule by pointing gitlink at `cb5e7bb`.
+- Committed merge `d21ab9daf`. Now 0 behind / 28 ahead of 1.4.7.
+
+### Phase 3 — verification (local, static)
+- Version bumped 1.4.6 → 1.4.7 (Cargo.toml).
+- Branding intact: Aspendora Remote, com.aspendora.remote, 2026 Aspendora copyright; all icons retained (differ from upstream).
+- Code customizations survived auto-merge: windows.rs service-name quoting + `rename_exe_cmd` install step; common.rs custom-client auto-update via own API server.
+- CI signing intact + coherent: DigiCert smctl (keypair `key_1474429650`), `certsync`, macOS `xcrun notarytool`. flutter-build.yml + playground.yml valid YAML.
+- Symbols merged code depends on still exist upstream: `get_api_server()`, `VER_TYPE_RUSTDESK_CLIENT`, `version_check_request()`.
+- No conflict markers anywhere in committed tree.
+- `.gitmodules` still points to `lacymooretx/hbb_common`.
+- **Note:** upstream restructured CLAUDE.md → moved content to `AGENTS.md`, CLAUDE.md now a 10-byte pointer. We never modified CLAUDE.md, so 3-way merge cleanly took upstream's change (no loss). New files added by upstream: AGENTS.md, GEMINI.md.
+- Full compile+sign NOT run locally (no VCPKG_ROOT / C++ deps) — authoritative verification is CI nightly build.
+
+### Next steps (Phase 4 — awaiting approval)
+1. Push `lacymooretx/hbb_common` branch `aspendora-custom-1.4.7` → fast-forward `aspendora-custom`.
+2. Push `catch-up-upstream-1.4.7`, fast-forward `master`, push `origin/master`.
+3. Trigger CI nightly build for end-to-end verification (compile + sign).
+
+---
+
+## 2026-06-06 — Fix: Entra ID SSO button missing on console login (NPM /api misroute)
+
+**Symptom:** rd.aspendora.com/login showed only email+password, no "Sign in with Microsoft" button, despite console backend having ENTRA_ENABLED=true.
+
+**Root cause:** NPM (VM 300, container `nginx-proxy-manager`) proxy host config `/data/nginx/proxy_host/26.conf` for rd.aspendora.com had a `/api` custom location with `rewrite ^/api/(.*)$ /$1 break;` that STRIPPED the /api prefix before `proxy_pass http://10.10.30.101:8117`. Backend routes are mounted at /api/auth/*, so it received /auth/* → FastAPI 404. This broke ALL public console API calls (SSO check AND password login). Frontend `/` proxied fine (SPA loaded), masking it.
+
+**Diagnosis path:** backend localhost:8117/api/auth/sso/enabled → {"enabled":true}; frontend container :8118/api/auth/sso/enabled → {"enabled":true} (frontend nginx proxies /api/ → backend:8000 correctly); but public https://rd.aspendora.com/api/* → {"detail":"Not Found"}. Isolated the break to NPM.
+
+**Fix:** backed up 26.conf → 26.conf.bak-20260606-163835, removed the rewrite line, `nginx -t` OK, `nginx -s reload`. Verified public /api/auth/sso/enabled → {"enabled":true,"provider":"microsoft"} and /api/auth/login → 422. Browser confirmed "Sign in with Microsoft" button now renders.
+
+**PERSISTENCE CAVEAT:** NPM regenerates proxy_host/*.conf from its SQLite DB when the proxy host is edited in the UI or NPM restarts. The manual edit survives `nginx -s reload` but NOT a UI edit / container restart. PERMANENT FIX: in NPM admin UI → Proxy Hosts → rd.aspendora.com → Custom Locations → /api → set forward path to `/api` (not `/`), OR delete the /api custom location entirely (frontend container at :8118 already proxies /api correctly, so location / would handle it).

@@ -109,14 +109,19 @@ Replaces RustDesk Server Pro's paid console with our own implementation.
 - [x] DigiCert code signing — Windows exe/dll/msi signed (certsync + signtool PATH fix)
 - [x] First client deployment — 3E-ADMINPC installed, service running, connected to server
 - [x] Vultr firewall fix — port 21114 opened, heartbeats flowing, device online in console
-- [ ] Fix service name space bug — `sc create` fails with spaces in app name, workaround: use `New-Service` in installer
+- [x] Fix service name space bug — quoted all `{app_name}` in `sc` and `taskkill` commands (commit 397b13951)
+- [x] Fix install exe rename — added `rename_exe_cmd` to install flow so service binary path resolves (commit 85e4a0200)
+- [x] Fix relay key mismatch — hbbs/hbbr had different keypairs, shared bind mount `/opt/docker/rustdesk/data:/root` fixes it
+- [x] Unattended access — permanent password set on 3E-ADMINPC (`Aspendora2026!`)
+- [x] PostgreSQL migration — console device data moved from hbbs SQLite to PostgreSQL; devices auto-register on heartbeat
+- [x] Second client deployment — DESKTOP-3E2A8N6 (CWA 108), RustDesk ID 144370270
 - [ ] Control roles (session-level permissions)
 - [ ] LDAP integration
 
 ---
 
 ## Current Status
-**Phase**: Phase 7 — IN PROGRESS (branding, heartbeat, web access, auto-update, code signing, Vultr firewall done; service name space bug found)
+**Phase**: Phase 7 — IN PROGRESS (branding, heartbeat, web access, auto-update, code signing, Vultr firewall, relay key fix, unattended access done)
 **Last Updated**: 2026-03-09
 
 ### Phase 6 Deliverables
@@ -249,3 +254,32 @@ Replaces RustDesk Server Pro's paid console with our own implementation.
 - Host nginx config for rd.aspendora.com SSL proxy
 - External volume mount for hbbs SQLite (read-only)
 - Isolated networking: backend/db on internal, frontend on internal + proxy-network
+
+---
+
+## Phase: Upstream Catch-Up to 1.4.7 (2026-06-06)
+
+**Goal:** Update fork from 1.4.6 to upstream RustDesk 1.4.7 (146 commits) without losing Aspendora customizations.
+
+**Status:** Merge complete on branch `catch-up-upstream-1.4.7`; verified locally. **PHASE COMPLETE — awaiting approval to push.**
+
+### Deliverables
+- hbb_common submodule rebased onto upstream 1.4.7 ref → `cb5e7bb` (branch `aspendora-custom-1.4.7`).
+- Main repo merge commit `d21ab9daf` (merge of tag `1.4.7`). Now 0 behind / 28 ahead.
+
+### Verification (local/static)
+- Version → 1.4.7; branding, icons, bundle IDs preserved.
+- CI DigiCert + notarytool signing intact and valid YAML.
+- windows.rs + common.rs customizations survived auto-merge.
+- No conflict markers; submodule + .gitmodules correct.
+- Full compile+sign deferred to CI (no local vcpkg toolchain).
+
+### Risks / notes
+- Only manual conflict was the submodule (resolved). Auto-merge otherwise clean.
+- Upstream moved CLAUDE.md content → AGENTS.md (accepted; no loss).
+- End-to-end build correctness pending CI nightly run.
+
+### Remaining (post-approval)
+1. Push hbb_common `aspendora-custom`.
+2. Fast-forward + push `origin/master`.
+3. Trigger `Flutter Nightly Build` to confirm compile + signing.

@@ -6,10 +6,6 @@ networks:
   proxy-network:
     external: true
 
-volumes:
-  rustdesk_hbbs_data:
-  rustdesk_hbbr_data:
-
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
@@ -22,7 +18,7 @@ services:
       - "21116:21116/udp"
       - "21118:21118"
     volumes:
-      - rustdesk_hbbs_data:/root
+      - /opt/docker/rustdesk/data:/root
     networks:
       - rustdesk-net
       - proxy-network
@@ -38,7 +34,7 @@ services:
       - "21117:21117"
       - "21119:21119"
     volumes:
-      - rustdesk_hbbr_data:/root
+      - /opt/docker/rustdesk/data:/root
     networks:
       - rustdesk-net
     labels:
