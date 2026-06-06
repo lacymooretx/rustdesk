@@ -1,0 +1,55 @@
+name: aspendora-console
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: aspendora-console-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aspendora_console
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${CONSOLE_DB_PASSWORD:-postgres}
+    volumes:
+      - console_postgres_data:/var/lib/postgresql/data
+    networks:
+      - console-internal
+
+  backend:
+    build: ./backend
+    container_name: aspendora-console-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${CONSOLE_DB_PASSWORD:-postgres}@db:5432/aspendora_console
+      SECRET_KEY: ${CONSOLE_SECRET_KEY:-change-me-in-production}
+      CORS_ORIGINS: '["https://rd.aspendora.com"]'
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_REDIRECT_URI: ${ENTRA_REDIRECT_URI:-https://rd.aspendora.com/api/auth/sso/callback}
+      ENTRA_ENABLED: ${ENTRA_ENABLED:-false}
+    depends_on:
+      - db
+    networks:
+      - console-internal
+      - proxy-network
+
+  frontend:
+    build: ./frontend
+    container_name: aspendora-console-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - console-internal
+      - proxy-network
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+networks:
+  console-internal:
+    driver: bridge
+  proxy-network:
+    external: true
+
+volumes:
+  console_postgres_data:
