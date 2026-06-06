@@ -16,12 +16,14 @@ import {
   Key,
   Bell,
   UserCog,
+  Download,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/devices', label: 'Devices', icon: Monitor },
   { to: '/address-books', label: 'Address Books', icon: BookOpen },
+  { to: '/downloads', label: 'Downloads', icon: Download },
 ]
 
 const adminNavItems = [
@@ -56,6 +58,7 @@ function SidebarLink({ to, label, icon: Icon }) {
 
 function pageTitleFromPath(pathname) {
   if (pathname === '/dashboard') return 'Dashboard'
+  if (pathname === '/downloads') return 'Downloads'
   if (pathname === '/devices') return 'Devices'
   if (pathname.startsWith('/devices/')) return 'Device Detail'
   if (pathname === '/users') return 'User Management'

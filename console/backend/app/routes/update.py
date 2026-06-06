@@ -116,6 +116,70 @@ def _find_asset_by_filename(assets: list, filename: str) -> str | None:
     return None
 
 
+# User-facing installers to surface on the console Downloads page.
+# Each entry: (platform label, arch label, filename suffix, kind label).
+# Order here controls display order within a platform group.
+_DOWNLOAD_CATALOG = [
+    ("Windows", "x86_64", "-x86_64.msi", "Installer (MSI)"),
+    ("Windows", "x86_64", "-x86_64.exe", "Installer (EXE)"),
+    ("Windows", "aarch64", "-aarch64.msi", "Installer (MSI)"),
+    ("Windows", "aarch64", "-aarch64.exe", "Installer (EXE)"),
+    ("macOS", "Apple Silicon", "-aarch64.dmg", "Disk Image (DMG)"),
+    ("macOS", "Intel", "-x86_64.dmg", "Disk Image (DMG)"),
+    ("Linux", "x86_64", "-x86_64.deb", "Debian Package (DEB)"),
+    ("Linux", "x86_64", "-x86_64.AppImage", "AppImage"),
+    ("Linux", "aarch64", "-aarch64.deb", "Debian Package (DEB)"),
+]
+
+
+def _list_downloads(assets: list, version: str, base_url: str) -> list:
+    """Build the grouped list of available installers from release assets.
+
+    Download URLs point at our own /api/update/release/{version}/{filename}
+    redirect so links stay on rd.aspendora.com and survive GitHub URL changes.
+    """
+    groups: dict = {}
+    for platform, arch, suffix, kind in _DOWNLOAD_CATALOG:
+        for asset in assets:
+            name = asset.get("name", "")
+            # Skip the legacy unsigned sciter build if it ever appears
+            if name.endswith(suffix) and "-sciter" not in name:
+                groups.setdefault(platform, [])
+                # Avoid duplicate filenames within a platform
+                if any(d["filename"] == name for d in groups[platform]):
+                    continue
+                groups[platform].append({
+                    "filename": name,
+                    "arch": arch,
+                    "kind": kind,
+                    "size": asset.get("size", 0),
+                    "url": f"{base_url}/api/update/release/{version}/{name}",
+                })
+                break
+    return [{"platform": p, "files": f} for p, f in groups.items() if f]
+
+
+@router.get("/update/downloads")
+async def list_downloads(request: Request):
+    """List all available signed installers for the Downloads page."""
+    release = await _fetch_latest_release()
+    if not release:
+        return {"version": "", "released_at": "", "groups": []}
+
+    assets = release.get("assets", [])
+    version = _extract_version(assets) or release.get("tag_name", "")
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("host", "rd.aspendora.com")
+    base_url = f"{scheme}://{host}"
+
+    return {
+        "version": version,
+        "released_at": release.get("published_at", ""),
+        "release_url": release.get("html_url", ""),
+        "groups": _list_downloads(assets, version, base_url),
+    }
+
+
 @router.post("/version/latest")
 async def version_check(request: Request):
     """Version check endpoint compatible with the RustDesk client's native format.

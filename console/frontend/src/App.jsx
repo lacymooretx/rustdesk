@@ -21,6 +21,7 @@ import APITokens from './pages/APITokens'
 import SSOCallback from './pages/SSOCallback'
 import Notifications from './pages/Notifications'
 import Settings from './pages/Settings'
+import Downloads from './pages/Downloads'
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         }
       >
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/downloads" element={<Downloads />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/devices/:id" element={<DeviceDetail />} />
         <Route
