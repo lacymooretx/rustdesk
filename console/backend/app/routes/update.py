@@ -63,13 +63,20 @@ async def _fetch_latest_release() -> dict | None:
 
 
 def _extract_version(assets: list) -> str:
-    """Extract the actual version number from release asset filenames."""
+    """Return the HIGHEST version found across asset filenames.
+
+    The 'nightly' release accumulates assets over time, so older builds
+    (e.g. 1.4.6) linger alongside the newest (1.4.7). Pick the max so we
+    never surface a stale version.
+    """
+    versions = set()
     for asset in assets:
-        name = asset.get("name", "")
-        m = _VERSION_RE.search(name)
+        m = _VERSION_RE.search(asset.get("name", ""))
         if m:
-            return m.group(1)
-    return ""
+            versions.add(m.group(1))
+    if not versions:
+        return ""
+    return max(versions, key=lambda v: tuple(int(p) for p in v.split(".")))
 
 
 def _find_asset(assets: list, platform: str, arch: str) -> dict | None:
@@ -139,11 +146,12 @@ def _list_downloads(assets: list, version: str, base_url: str) -> list:
     redirect so links stay on rd.aspendora.com and survive GitHub URL changes.
     """
     groups: dict = {}
+    version_prefix = f"rustdesk-{version}" if version else "rustdesk-"
     for platform, arch, suffix, kind in _DOWNLOAD_CATALOG:
         for asset in assets:
             name = asset.get("name", "")
-            # Skip the legacy unsigned sciter build if it ever appears
-            if name.endswith(suffix) and "-sciter" not in name:
+            # Only the latest version; skip the legacy unsigned sciter build
+            if name.startswith(version_prefix) and name.endswith(suffix) and "-sciter" not in name:
                 groups.setdefault(platform, [])
                 # Avoid duplicate filenames within a platform
                 if any(d["filename"] == name for d in groups[platform]):
