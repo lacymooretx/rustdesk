@@ -373,8 +373,10 @@ jobs:
   build-for-windows-sciter:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
-    # Temporarily disable this action due to additional test is needed.
-    # if: false
+    # Aspendora: legacy Sciter desktop is unused (we ship Flutter) and its
+    # only signing path is upstream's SIGN_BASE_URL, which we don't have — so
+    # this job would publish an UNSIGNED .exe. Disabled to avoid shipping it.
+    if: false
     strategy:
       fail-fast: false
       matrix:
