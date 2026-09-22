@@ -1107,3 +1107,19 @@ Sign the Windows nightly .exe and .msi with DigiCert KeyLocker so SmartScreen/De
 **Fix:** backed up 26.conf → 26.conf.bak-20260606-163835, removed the rewrite line, `nginx -t` OK, `nginx -s reload`. Verified public /api/auth/sso/enabled → {"enabled":true,"provider":"microsoft"} and /api/auth/login → 422. Browser confirmed "Sign in with Microsoft" button now renders.
 
 **PERSISTENCE CAVEAT:** NPM regenerates proxy_host/*.conf from its SQLite DB when the proxy host is edited in the UI or NPM restarts. The manual edit survives `nginx -s reload` but NOT a UI edit / container restart. PERMANENT FIX: in NPM admin UI → Proxy Hosts → rd.aspendora.com → Custom Locations → /api → set forward path to `/api` (not `/`), OR delete the /api custom location entirely (frontend container at :8118 already proxies /api correctly, so location / would handle it).
+
+---
+
+## 2026-06-06 — Feature: console Downloads page for client installers
+
+**Goal:** Add a place in the web console to download the signed .exe (and other) installers.
+
+**Implementation (commit 7306a2b22):**
+- Backend `console/backend/app/routes/update.py`: new `GET /api/update/downloads` — reuses existing `_fetch_latest_release` (GitHub nightly), returns version + assets grouped by platform (Windows EXE/MSI, macOS DMG, Linux DEB/AppImage), excludes legacy `-sciter` build. Download URLs route through existing `/api/update/release/{ver}/{file}` redirect so they stay on rd.aspendora.com.
+- Frontend: `Downloads.jsx` (react-query), route in `App.jsx`, "Downloads" sidebar item in `Layout.jsx`.
+
+**Verify:** frontend `npm run build` clean (1871 modules); backend `py_compile` OK; logic tested against live release assets.
+
+**Deploy:** console deployed as plain source copy at `/opt/services/aspendora-console` on VM 301 (NOT a git checkout). Shipped 4 changed files via tar/scp (backed up update.py, did NOT touch .env or docker-compose.yml), `sudo docker compose build backend frontend && up -d`. Containers recreated, healthy. Verified public https://rd.aspendora.com/api/update/downloads → 200 with grouped assets; backend logs show authenticated browser loads via NPM returning 200.
+
+**Note:** version currently shows 1.4.6 (nightly mid-publish during the 1.4.7 catch-up build); will update to 1.4.7 once that build finishes (10-min release cache). To deploy future console changes: copy files to /opt/services/aspendora-console on docker-apps, `sudo docker compose build && up -d`.
