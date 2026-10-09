@@ -30,7 +30,7 @@
   - direct-server = Y, allow-auto-disconnect = Y, enable-audio = N
 
 **4. Password**
-- Set via CLI: `"Aspendora Remote.exe" --password Aspendora2026!` -> "Done!"
+- Set via CLI: `"Aspendora Remote.exe" --password <REDACTED-in-Keeper>` -> "Done!"
 - Password stored encrypted in config: `password = '00b55VpQPQdNixzcouSQEDO8XGT6o40WQG4mp1Cm8='`
 
 **5. RustDesk ID**
@@ -152,11 +152,11 @@ The Aspendora Remote agent on 3E-ADMINPC is **healthy and fully operational**:
   5. Restarted Aspendora Remote service on 3E-ADMINPC
   6. Agent re-registered with hbbs, no "invalid key" errors in hbbr
 - **Files changed**: `server-deploy/docker-compose.yml` (bind mount replaces named volumes)
-- **Also done**: Set permanent password `Aspendora2026!` on 3E-ADMINPC for unattended access, and copied `rustdesk.exe` → `Aspendora Remote.exe` so `--password` CLI flag works
+- **Also done**: Set permanent password `<REDACTED-in-Keeper>` on 3E-ADMINPC for unattended access, and copied `rustdesk.exe` → `Aspendora Remote.exe` so `--password` CLI flag works
 
 ### Step 18: Set permanent password for unattended access
 - **Goal**: Enable unattended remote access (no manual approval needed)
-- **What**: Set password `Aspendora2026!` in config file `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Aspendora Remote\config\Aspendora Remote.toml`
+- **What**: Set password `<REDACTED-in-Keeper>` in config file `C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Aspendora Remote\config\Aspendora Remote.toml`
 - **Method**: Edited config directly via CWA (the `--password` CLI flag failed because `is_installed()` checks for `Aspendora Remote.exe` which didn't exist yet). Also copied `rustdesk.exe` to `Aspendora Remote.exe` in the install dir.
 - **Result**: Service encrypted and stored the password on restart. Config shows: `password = '005hF/bZow24/OGvpRfZQu0NvsuTC2HGqY/S0wQdF/'`
 
@@ -1013,9 +1013,9 @@ Sign the Windows nightly .exe and .msi with DigiCert KeyLocker so SmartScreen/De
 
 ### Step 1: Initial attempt with --password CLI flag
 - **Timestamp**: 2026-03-09 ~14:30 CST
-- **Goal**: Set permanent password "Aspendora2026!" on Aspendora Remote agent (computer 197)
+- **Goal**: Set permanent password "<REDACTED-in-Keeper>" on Aspendora Remote agent (computer 197)
 - **Method**: CWA API CommandExecute (Command ID 2)
-- **Command**: `rustdesk.exe --password Aspendora2026!`
+- **Command**: `rustdesk.exe --password <REDACTED-in-Keeper>`
 - **Result**: **FAILED** — "Installation and administrative privileges required!"
 - **Root cause**: `is_installed()` in `src/platform/windows.rs` checks for `C:\Program Files\Aspendora Remote\Aspendora Remote.exe` but the actual file is `rustdesk.exe` (the install rename step was fixed in commit `85e4a0200` but this machine was installed before that fix)
 
@@ -1023,10 +1023,10 @@ Sign the Windows nightly .exe and .msi with DigiCert KeyLocker so SmartScreen/De
 - **Goal**: Bypass the `is_installed()` check by editing the config file directly
 - **What**: Used PowerShell via CWA to:
   1. Stop the Aspendora Remote service
-  2. Edit `Aspendora Remote.toml` to replace `password = ''` with `password = 'Aspendora2026!'`
+  2. Edit `Aspendora Remote.toml` to replace `password = ''` with `password = '<REDACTED-in-Keeper>'`
   3. Start the service
 - **Result**: **SUCCESS**
-  - Config after edit showed `password = 'Aspendora2026!'` (plain text before service reads it)
+  - Config after edit showed `password = '<REDACTED-in-Keeper>'` (plain text before service reads it)
   - After service start, config showed `password = '005hF/bZow24/OGvpRfZQu0NvsuTC2HGqY/S0wQdF/'` (hashed by service on startup)
   - Service STATE: 4 RUNNING
 

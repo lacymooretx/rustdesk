@@ -112,7 +112,7 @@ Replaces RustDesk Server Pro's paid console with our own implementation.
 - [x] Fix service name space bug — quoted all `{app_name}` in `sc` and `taskkill` commands (commit 397b13951)
 - [x] Fix install exe rename — added `rename_exe_cmd` to install flow so service binary path resolves (commit 85e4a0200)
 - [x] Fix relay key mismatch — hbbs/hbbr had different keypairs, shared bind mount `/opt/docker/rustdesk/data:/root` fixes it
-- [x] Unattended access — permanent password set on 3E-ADMINPC (`Aspendora2026!`)
+- [x] Unattended access — permanent password set on 3E-ADMINPC (`<REDACTED-in-Keeper>`)
 - [x] PostgreSQL migration — console device data moved from hbbs SQLite to PostgreSQL; devices auto-register on heartbeat
 - [x] Second client deployment — DESKTOP-3E2A8N6 (CWA 108), RustDesk ID 144370270
 - [ ] Control roles (session-level permissions)
